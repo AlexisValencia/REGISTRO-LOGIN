@@ -17,23 +17,10 @@ async function login(req, res) {
     const hashPassword = row[0].password;
     const getCompareHashPassword = await bcryptjs.compare(password, hashPassword);//Comparación del password en BD (cifrado) con el pasado por formulario
     if(!getCompareHashPassword) return res.status(401).send({message:"Datos incorrectos"});
-
-    /** USO DE JSON WEB TOKEN PARA PERMITIR EL ACCESO */
-    const token = jsonwebtoken.sign(
-      {user}, 
-      process.env.JWT_SECRET, 
-      {expiresIn: process.env.JWT_EXPIRATION}
-    );
-
-    /**USO DE LA COOKIE PARA MANTENER DICHA SESSION */
-    const cookieOption = {
-      expires : new Date(Date.now() + process.env.JWT_COOKIE_EXPIRES * 24 * 60 * 60 * 1000), //Se convierte en días el periodo establecido
-      path:"/"
-    };
-    
+    const createJsonWebToken = await generateJsonWebToken(req, user); 
+    const{token, cookieOption} = createJsonWebToken;
     res.cookie("jwt", token, cookieOption); //El nombre de la cookie: jwt, valor:token, opciones:cookieOption
-    res.status(200).send({status:"ok", message:"Iniciando sesión", redirect:"/"});
-
+    res.status(200).send({status:"ok", message:"Iniciando sesión", redirect:"/admin"});
   } catch (error) {
     res.status(500).send({ message: error.message })
   }
@@ -67,9 +54,38 @@ async function isUserCheck(user) {
     // Retorna true si el usuario existe, de lo contrario false
     return count > 0;
   } catch (error) {
-    console.error('Error querying database:', error);
     return false;
   }
 }
 
-export const methods = { login, register };
+
+// CREA JSONWEBTOKEN SEGURO
+async function generateJsonWebToken (req, user){
+  // Información contextual adicional
+  const payload = {
+      user, //Nombre del usuario
+      ip: req.ip, // Almacenar la IP del cliente
+      userAgent: req.headers['user-agent'] // Almacenar el User-Agent del cliente
+  };
+
+  const token = jsonwebtoken.sign(
+      payload, 
+      process.env.JWT_SECRET, 
+      { 
+          expiresIn: process.env.JWT_EXPIRATION, 
+          algorithm: 'HS256' // Usar algoritmo seguro
+      }
+  );
+
+  const cookieOption = {
+      expires: new Date(Date.now() + process.env.JWT_COOKIE_EXPIRES * 24 * 60 * 60 * 1000),
+      httpOnly: true, // Asegura que la cookie no sea accesible mediante JavaScript
+      // secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict', // Previene ataques CSRF
+      path: "/"
+  };
+
+  return { token, cookieOption };
+}
+
+export const methods = { login, register, isUserCheck };
